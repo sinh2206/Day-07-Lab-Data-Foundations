@@ -1,0 +1,221 @@
+KIẾN THỨC CẦN CÓ CHO BÀI LAB
+
+1. Python cơ bản và cấu trúc project
+
+Cần nắm:
+- Cách tổ chức package Python bằng thư mục src/ và file __init__.py.
+- Cách import class/function giữa các module.
+- Cách đọc code theo hướng test-driven: xem tests/test_solution.py để hiểu hành vi kỳ vọng.
+- Cách dùng virtual environment và pip để cài requirements.
+- Cách đọc traceback khi test fail.
+
+Áp dụng trong bài:
+- main.py import public API từ package src.
+- tests/test_solution.py import các class từ src để kiểm tra.
+- Người học cần sửa src/chunking.py, src/store.py và src/agent.py, không cần sửa test.
+
+2. Dataclass và kiểu dữ liệu
+
+Cần nắm:
+- @dataclass dùng để tạo class lưu dữ liệu gọn hơn.
+- field(default_factory=dict) dùng để tránh lỗi dùng chung một dict mặc định giữa nhiều object.
+- list, dict, str, float và type hints như list[str], Callable[[str], str].
+
+Áp dụng trong bài:
+- Document trong src/models.py là dataclass gồm id, content và metadata.
+- EmbeddingStore lưu mỗi record dưới dạng dict gồm id, content, metadata, embedding và score khi search.
+
+3. Xử lý chuỗi và regex
+
+Cần nắm:
+- Cách strip whitespace, kiểm tra chuỗi rỗng, nối chuỗi.
+- Cách cắt chuỗi bằng slicing.
+- Cách dùng re.split hoặc pattern regex để tách câu.
+- Cách giữ nội dung có nghĩa khi chia đoạn văn.
+
+Áp dụng trong bài:
+- SentenceChunker cần tách văn bản theo dấu câu như ".", "!", "?" hoặc xuống dòng.
+- RecursiveChunker cần chia văn bản theo separator như "\n\n", "\n", ". ", " " và fallback theo ký tự.
+
+4. Chunking tài liệu
+
+Chunking là quá trình chia tài liệu dài thành các đoạn nhỏ để embedding và search hiệu quả hơn.
+
+Cần hiểu ba chiến lược:
+- Fixed-size chunking: chia theo số ký tự cố định, có thể có overlap.
+- Sentence-based chunking: gom một số câu vào một chunk.
+- Recursive chunking: ưu tiên tách theo cấu trúc lớn trước, chỉ tách nhỏ hơn khi đoạn vẫn quá dài.
+
+Điểm cần chú ý:
+- Chunk quá ngắn có thể mất ngữ cảnh.
+- Chunk quá dài có thể chứa nhiều ý không liên quan.
+- Overlap giúp giữ ngữ cảnh giữa hai chunk liên tiếp.
+- Với tài liệu có cấu trúc rõ như markdown, recursive chunking thường là baseline tốt.
+
+Công thức trong bài:
+- num_chunks = ceil((doc_length - overlap) / (chunk_size - overlap))
+- Ví dụ doc_length = 10000, chunk_size = 500, overlap = 50 thì step = 450.
+
+5. Embedding
+
+Embedding là vector số biểu diễn ý nghĩa của văn bản.
+
+Cần nắm:
+- Hai câu gần nghĩa thường có vector gần nhau.
+- Embedding không phải lúc nào cũng đúng tuyệt đối, nhất là với dữ liệu mơ hồ, song ngữ hoặc thiếu ngữ cảnh.
+- Mock embedding trong bài là deterministic, nghĩa là cùng input luôn cho cùng vector, phù hợp cho test.
+- Local/OpenAI embedding là tùy chọn, không bắt buộc để hoàn thành lab.
+
+Áp dụng trong bài:
+- _mock_embed được dùng mặc định.
+- LocalEmbedder dùng all-MiniLM-L6-v2 nếu cài sentence-transformers.
+- OpenAIEmbedder dùng text-embedding-3-small nếu cài openai và có OPENAI_API_KEY.
+
+6. Cosine similarity
+
+Cosine similarity đo góc giữa hai vector, thường dùng để đo mức độ tương đồng ngữ nghĩa giữa hai embedding.
+
+Công thức:
+cosine_similarity = dot(a, b) / (||a|| * ||b||)
+
+Cần nắm:
+- Kết quả gần 1: hai vector rất giống hướng, văn bản có thể gần nghĩa.
+- Kết quả gần 0: hai vector ít liên quan.
+- Kết quả gần -1: hai vector ngược hướng.
+- Nếu một vector có độ dài bằng 0 thì nên trả về 0.0 để tránh chia cho 0.
+
+Vì sao dùng cosine thay vì Euclidean:
+- Text embedding quan trọng hướng vector hơn độ lớn tuyệt đối.
+- Cosine similarity phù hợp để so sánh ý nghĩa khi vector có thể khác độ dài hoặc đã được normalize.
+
+7. Dot product và ranking
+
+Cần nắm:
+- Dot product là tổng các tích từng chiều của hai vector.
+- Nếu embedding đã normalize, dot product có thể tương đương cosine similarity.
+- Search trong vector store thường là embed query rồi xếp hạng document theo similarity score giảm dần.
+
+Áp dụng trong bài:
+- EmbeddingStore.search cần trả về top_k kết quả có score cao nhất.
+- Test yêu cầu danh sách kết quả được sort theo score giảm dần.
+
+8. Vector store
+
+Vector store là nơi lưu embedding, nội dung và metadata để tìm kiếm tương đồng.
+
+Cần nắm các thao tác:
+- add_documents: embed và lưu từng document/chunk.
+- search: tìm top-k record gần query nhất.
+- get_collection_size: đếm số record đang lưu.
+- search_with_filter: lọc theo metadata trước, sau đó mới search trong tập đã lọc.
+- delete_document: xóa tất cả record thuộc một doc_id.
+
+Điểm quan trọng:
+- Metadata phải được lưu kèm record.
+- Khi add document, nên đảm bảo metadata có doc_id để delete hoạt động.
+- Filter trước search giúp giảm nhiễu và đúng yêu cầu bài.
+
+9. Metadata trong retrieval
+
+Metadata là thông tin mô tả tài liệu hoặc chunk.
+
+Ví dụ metadata:
+- source: đường dẫn hoặc nguồn tài liệu.
+- language/lang: ngôn ngữ.
+- department: phòng ban.
+- category: loại nội dung.
+- date: ngày cập nhật.
+- doc_id: id tài liệu gốc.
+
+Lợi ích:
+- Giúp lọc đúng miền tài liệu.
+- Giảm kết quả nhiễu.
+- Hỗ trợ trace nguồn khi agent trả lời.
+
+Rủi ro:
+- Filter quá chặt có thể làm mất kết quả đúng.
+- Metadata thiếu hoặc sai khiến retrieval kém chính xác.
+- Trộn tài liệu public, internal và engineering-only mà không lọc có thể gây trả lời sai đối tượng.
+
+10. RAG - Retrieval-Augmented Generation
+
+RAG là pattern kết hợp retrieval với generation.
+
+Luồng cơ bản:
+- Người dùng đặt câu hỏi.
+- Hệ thống retrieve top-k chunk liên quan.
+- Hệ thống xây prompt chứa context và question.
+- LLM tạo câu trả lời dựa trên context.
+
+Cần nắm:
+- Context phải được inject rõ vào prompt.
+- Agent nên trả lời dựa trên bằng chứng retrieved.
+- Nếu context yếu hoặc không đủ, hệ thống nên thừa nhận thay vì bịa.
+- Grounding quality là mức độ câu trả lời bám vào tài liệu.
+
+Áp dụng trong bài:
+- KnowledgeBaseAgent.answer cần gọi store.search, tạo prompt và gọi llm_fn.
+- demo_llm trong main.py là mock LLM để kiểm tra luồng, không phải LLM thật.
+
+11. Đánh giá retrieval
+
+Cần nắm các metric trong docs/EVALUATION.md:
+- Retrieval Precision: top-k có chứa chunk liên quan không.
+- Score Distribution: điểm số có phân biệt kết quả tốt và nhiễu không.
+- Chunk Coherence: chunk có giữ ý hoàn chỉnh không.
+- Metadata Utility: filter có giúp tốt hơn không.
+- Grounding Quality: answer có dựa trên context không.
+- Data Strategy Impact: tài liệu, metadata và chunking có phù hợp domain không.
+
+Áp dụng trong bài:
+- Nhóm phải có đúng 5 benchmark queries kèm gold answers.
+- Mỗi query có thể chấm 0, 1 hoặc 2 điểm theo top-3 chunk và độ đúng của answer.
+- Cần ghi ít nhất 1 failure case và phân tích nguyên nhân.
+
+12. Testing với pytest
+
+Cần nắm:
+- Cách đọc tên test để biết chức năng đang fail.
+- Cách chạy toàn bộ test hoặc một test cụ thể.
+- Cách hiểu assert như assertEqual, assertIn, assertGreater, assertLessEqual.
+
+Áp dụng trong bài:
+- Test kiểm tra số chunk, kiểu dữ liệu, sort score, filter metadata, delete document và agent answer.
+- Khi test fail, nên sửa đúng module liên quan thay vì chỉnh test.
+
+13. Biến môi trường và .env
+
+Cần nắm:
+- os.getenv đọc biến môi trường.
+- python-dotenv load biến từ file .env.
+- Fallback giúp chương trình vẫn chạy khi thiếu cấu hình optional.
+
+Áp dụng trong bài:
+- EMBEDDING_PROVIDER có thể là mock, local hoặc openai.
+- OPENAI_API_KEY cần có nếu dùng OpenAIEmbedder.
+- Nếu local/openai setup lỗi, main.py sẽ fallback về _mock_embed.
+
+14. Kỹ năng viết report
+
+Cần nắm:
+- Trình bày kết quả bằng bảng.
+- Giải thích approach bằng ngôn ngữ rõ ràng, không chỉ dán code.
+- So sánh strategy dựa trên bằng chứng từ benchmark.
+- Ghi rõ prediction vs actual trong similarity experiment.
+- Phân tích failure case với nguyên nhân và đề xuất cải thiện.
+
+Áp dụng trong bài:
+- report/REPORT.md là file nộp chính.
+- Phần nhóm có thể giống nhau giữa thành viên, nhưng phần cá nhân phải phản ánh strategy và kết quả riêng.
+
+15. Sai lầm phổ biến cần tránh
+
+- Đặt overlap lớn hơn hoặc bằng chunk_size khiến step không hợp lệ.
+- Quên xử lý text rỗng.
+- Không strip whitespace làm chunk bẩn.
+- Quên guard zero vector trong cosine similarity.
+- Search xong mới filter metadata, trong khi yêu cầu là filter trước rồi search.
+- Không lưu doc_id trong metadata nên delete_document không biết xóa gì.
+- Agent gọi LLM mà không đưa retrieved context vào prompt.
+- Benchmark query quá dễ, quá giống nhau hoặc không có câu cần metadata filtering.
+- Chỉ ghi "pass test" mà không phân tích retrieval quality.

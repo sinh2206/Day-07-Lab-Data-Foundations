@@ -1,0 +1,377 @@
+CÁCH LÀM DỰ ÁN - DAY 7 LAB DATA FOUNDATIONS
+
+Ghi chú này là lộ trình thực hiện bài lab. Phần chạy lệnh, chạy test và chạy demo nên do người học tự thực hiện.
+
+1. Đọc yêu cầu và xác định sản phẩm nộp
+
+Trước khi code, cần đọc theo thứ tự:
+- README.md để hiểu mục tiêu, cấu trúc lab và cách setup.
+- exercises.md để biết từng bài tập cần làm.
+- docs/SCORING.md để biết phần nào được bao nhiêu điểm.
+- docs/EVALUATION.md để hiểu cách đánh giá retrieval quality.
+- report/REPORT.md để biết cuối cùng phải ghi những gì.
+
+Sản phẩm cuối cùng:
+- Code hoàn thành trong src/.
+- Báo cáo trong report/REPORT.md.
+- Phần nhóm gồm document set, metadata, benchmark queries, strategy comparison và demo.
+
+2. Hiểu luồng hoạt động trước khi sửa code
+
+Luồng chương trình:
+- main.py đọc file trong data/.
+- Mỗi file được chuyển thành Document(id, content, metadata).
+- Document được đưa vào EmbeddingStore.
+- EmbeddingStore gọi embedding_fn để tạo vector.
+- Khi có query, store embed query và tính score với các record đã lưu.
+- KnowledgeBaseAgent lấy top-k chunk từ store, xây prompt và gọi llm_fn.
+
+Nên hiểu rõ luồng này trước vì các TODO trong src/ đều nằm trên cùng pipeline đó.
+
+3. Làm warm-up trong report
+
+Phần warm-up gồm hai ý:
+
+Cosine similarity:
+- Giải thích bằng lời rằng high similarity nghĩa là hai văn bản gần nghĩa hoặc nói về cùng chủ đề.
+- Cho ví dụ một cặp câu high similarity và một cặp câu low similarity.
+- Giải thích vì sao cosine similarity hợp với text embedding hơn Euclidean distance.
+
+Chunking math:
+- Với doc_length = 10000, chunk_size = 500, overlap = 50:
+  step = 500 - 50 = 450.
+  num_chunks = ceil((10000 - 50) / 450).
+- Nếu overlap tăng lên 100 thì step nhỏ hơn, số chunk tăng lên và context giữa chunk được giữ nhiều hơn.
+
+4. Implement src/chunking.py
+
+4.1. SentenceChunker.chunk
+
+Mục tiêu:
+- Tách text thành các câu.
+- Gom tối đa max_sentences_per_chunk câu vào một chunk.
+- Trả về list[str].
+- Strip khoảng trắng thừa.
+- Text rỗng thì trả về [].
+
+Cách làm gợi ý:
+- Dùng regex để tách theo ranh giới câu như ". ", "! ", "? " hoặc ".\n".
+- Loại bỏ câu rỗng sau khi split.
+- Duyệt danh sách câu theo từng nhóm max_sentences_per_chunk.
+- Ghép các câu trong nhóm thành một chunk.
+
+Điểm cần kiểm tra:
+- max_sentences_per_chunk càng nhỏ thì số chunk thường càng nhiều.
+- Mỗi chunk phải là string.
+- Không nên làm mất toàn bộ dấu câu nếu có thể giữ được.
+
+4.2. RecursiveChunker.chunk và _split
+
+Mục tiêu:
+- Tách text theo danh sách separator ưu tiên.
+- Nếu đoạn đã ngắn hơn hoặc bằng chunk_size thì giữ nguyên.
+- Nếu đoạn quá dài thì thử separator tiếp theo.
+- Nếu không còn separator phù hợp thì fallback cắt theo chunk_size.
+
+Cách làm gợi ý:
+- Base case 1: text rỗng trả về [].
+- Base case 2: len(text) <= chunk_size trả về [text.strip()].
+- Nếu remaining_separators rỗng, cắt text thành các đoạn chunk_size.
+- Với separator hiện tại:
+  - Nếu separator là "", cắt trực tiếp theo ký tự.
+  - Nếu separator có trong text, split text theo separator.
+  - Gom các phần nhỏ lại sao cho mỗi chunk không vượt quá chunk_size.
+  - Phần nào vẫn quá dài thì gọi đệ quy với separator tiếp theo.
+- Loại bỏ chunk rỗng.
+
+Điểm cần kiểm tra:
+- RecursiveChunker phải xử lý được separators=[].
+- Nên ưu tiên giữ đoạn văn/câu nguyên vẹn khi có thể.
+- Phần lớn chunk nên có độ dài quanh chunk_size hoặc nhỏ hơn.
+
+4.3. compute_similarity
+
+Mục tiêu:
+- Tính cosine similarity giữa hai vector.
+- Trả về 0.0 nếu một trong hai vector có magnitude bằng 0.
+
+Cách làm:
+- dot = sum(a_i * b_i).
+- norm_a = sqrt(sum(a_i ** 2)).
+- norm_b = sqrt(sum(b_i ** 2)).
+- Nếu norm_a == 0 hoặc norm_b == 0 thì return 0.0.
+- Ngược lại return dot / (norm_a * norm_b).
+
+Điểm cần kiểm tra:
+- Vector giống nhau trả về gần 1.
+- Vector vuông góc trả về gần 0.
+- Vector ngược hướng trả về gần -1.
+- Zero vector trả về 0.
+
+4.4. ChunkingStrategyComparator.compare
+
+Mục tiêu:
+- Chạy cả ba strategy built-in.
+- Trả về dict có key fixed_size, by_sentences và recursive.
+- Mỗi strategy có count, avg_length và chunks.
+
+Cách làm gợi ý:
+- fixed_size dùng FixedSizeChunker(chunk_size=chunk_size, overlap phù hợp).
+- by_sentences dùng SentenceChunker.
+- recursive dùng RecursiveChunker(chunk_size=chunk_size).
+- avg_length = tổng độ dài chunk / số chunk, nếu không có chunk thì là 0.
+
+5. Implement src/store.py
+
+5.1. EmbeddingStore.__init__
+
+Mục tiêu:
+- Lưu embedding_fn.
+- Khởi tạo in-memory store là list.
+- Nếu có ChromaDB thì có thể khởi tạo collection, nhưng không bắt buộc cho test.
+
+Ghi chú:
+- Với bài lab, in-memory store là đủ.
+- Không nên làm code phụ thuộc bắt buộc vào chromadb vì requirements chỉ để chromadb là optional.
+
+5.2. _make_record
+
+Mục tiêu:
+- Chuẩn hóa một Document thành record để lưu.
+
+Record nên có:
+- id: id duy nhất của record.
+- doc_id: id tài liệu gốc.
+- content: nội dung document/chunk.
+- metadata: metadata có kèm doc_id.
+- embedding: vector từ embedding_fn(content).
+
+Điểm quan trọng:
+- Nếu metadata ban đầu chưa có doc_id, nên thêm doc_id = doc.id.
+- Không nên làm mất metadata gốc.
+
+5.3. add_documents
+
+Mục tiêu:
+- Nhận list[Document].
+- Với mỗi document, tạo record và thêm vào store.
+- Tăng collection size tương ứng.
+
+Điểm cần kiểm tra:
+- Thêm 3 document thì size tăng 3.
+- Gọi add_documents nhiều lần thì size tiếp tục tăng.
+
+5.4. search và _search_records
+
+Mục tiêu:
+- Embed query.
+- Tính score giữa query embedding và embedding của từng record.
+- Sort giảm dần theo score.
+- Trả về tối đa top_k kết quả.
+
+Kết quả nên có:
+- content.
+- metadata.
+- score.
+- id hoặc doc_id nếu muốn trace nguồn.
+
+Điểm cần kiểm tra:
+- search trả về list.
+- len(results) <= top_k.
+- score được sort giảm dần.
+- Mỗi result có content và score.
+
+5.5. search_with_filter
+
+Mục tiêu:
+- Nếu metadata_filter là None hoặc rỗng, trả kết quả như search.
+- Nếu có filter, lọc record theo metadata trước.
+- Sau đó search chỉ trong các record đã lọc.
+
+Cách lọc:
+- Một record match nếu tất cả key-value trong metadata_filter đều xuất hiện trong record["metadata"] với giá trị bằng nhau.
+
+Điểm cần kiểm tra:
+- Filter department="engineering" thì mọi result phải có metadata department là engineering.
+- Filter trước search, không phải search trước rồi mới filter.
+
+5.6. delete_document
+
+Mục tiêu:
+- Xóa tất cả record có metadata["doc_id"] == doc_id hoặc doc_id tương ứng.
+- Trả True nếu có xóa ít nhất một record.
+- Trả False nếu không tìm thấy document.
+
+Điểm cần kiểm tra:
+- Xóa document tồn tại thì size giảm.
+- Xóa document không tồn tại thì trả False.
+
+6. Implement src/agent.py
+
+6.1. __init__
+
+Mục tiêu:
+- Lưu store và llm_fn vào instance.
+
+6.2. answer
+
+Mục tiêu:
+- Nhận question và top_k.
+- Gọi store.search(question, top_k=top_k).
+- Lấy content của các chunk retrieve được.
+- Xây prompt gồm phần context và question.
+- Gọi llm_fn(prompt).
+- Trả về string từ llm_fn.
+
+Prompt nên có:
+- Hướng dẫn trả lời dựa trên context.
+- Danh sách retrieved chunks.
+- Câu hỏi người dùng.
+
+Điểm cần kiểm tra:
+- answer trả về string.
+- answer không rỗng.
+- Context retrieved phải được đưa vào prompt, vì đó là bản chất của RAG.
+
+7. Chuẩn bị tài liệu nhóm trong data/
+
+Nhóm cần:
+- Chọn một domain cụ thể như FAQ, SOP, policy, internal docs, technical docs hoặc customer support.
+- Có 5-10 tài liệu .txt hoặc .md.
+- Mỗi tài liệu nên có nội dung đủ rõ để truy vấn.
+- Ghi inventory vào report: tên tài liệu, nguồn, số ký tự và metadata.
+
+Metadata nên có ít nhất 2 trường hữu ích, ví dụ:
+- category.
+- source.
+- lang hoặc language.
+- department.
+- audience.
+- date.
+- difficulty.
+
+Mục tiêu của metadata:
+- Giúp search_with_filter có ý nghĩa.
+- Giúp phân biệt tài liệu cùng chủ đề nhưng khác phòng ban, ngôn ngữ hoặc đối tượng.
+
+8. Thiết kế retrieval strategy cá nhân
+
+Mỗi thành viên nên thử strategy khác nhau để nhóm có dữ liệu so sánh.
+
+Các lựa chọn:
+- FixedSizeChunker với chunk_size và overlap khác nhau.
+- SentenceChunker với max_sentences_per_chunk khác nhau.
+- RecursiveChunker với chunk_size khác nhau.
+- Custom chunker theo domain, ví dụ tách theo heading markdown, Q&A pair hoặc từng procedure.
+
+Cách chọn:
+- Nếu tài liệu dài, nhiều đoạn: thử RecursiveChunker.
+- Nếu tài liệu là FAQ ngắn: thử tách theo Q&A hoặc sentence.
+- Nếu tài liệu không có cấu trúc rõ: fixed-size có overlap là baseline đơn giản.
+- Nếu tài liệu có markdown heading: custom chunk theo section có thể tốt hơn.
+
+9. Chuẩn bị 5 benchmark queries
+
+Nhóm phải thống nhất đúng 5 query kèm gold answer.
+
+Query tốt nên:
+- Đa dạng, không hỏi cùng một kiểu.
+- Có câu factual đơn giản.
+- Có câu cần tìm trong một tài liệu cụ thể.
+- Có câu cần metadata filtering.
+- Có câu dễ gây nhầm để kiểm tra failure.
+
+Gold answer cần:
+- Cụ thể.
+- Verify được từ tài liệu.
+- Ghi rõ chunk hoặc tài liệu chứa thông tin đúng.
+
+10. Chạy benchmark và ghi kết quả
+
+Với mỗi query, cần ghi:
+- Top-1 hoặc top-3 retrieved chunks.
+- Score.
+- Chunk có relevant không.
+- Agent answer tóm tắt.
+- So sánh với gold answer.
+
+Cách chấm theo rubric:
+- 2 điểm: top-3 có chunk relevant và answer chính xác.
+- 1 điểm: có chunk relevant nhưng answer thiếu chi tiết hoặc chunk đúng không ở top-1.
+- 0 điểm: top-3 không có chunk relevant.
+
+11. Phân tích strategy
+
+Khi so sánh strategy, không chỉ ghi strategy nào điểm cao hơn. Cần giải thích vì sao.
+
+Góc nhìn phân tích:
+- Chunk có giữ đủ ngữ cảnh không.
+- Chunk có quá dài và lẫn nhiều ý không.
+- Query có cần metadata không.
+- Filter có giúp tăng precision không.
+- Score giữa kết quả tốt và nhiễu có tách biệt không.
+- Có tài liệu nào cũ hoặc sai domain nhưng vẫn rank cao không.
+
+12. Failure analysis
+
+Cần tìm ít nhất một trường hợp retrieval thất bại.
+
+Mẫu phân tích:
+- Query thất bại là gì.
+- Top-3 trả về gì.
+- Gold answer nằm ở đâu.
+- Nguyên nhân có thể là chunk quá nhỏ, chunk quá lớn, metadata thiếu, query mơ hồ, dữ liệu thiếu, embedding không hiểu tiếng Việt/song ngữ hoặc tài liệu nhiễu.
+- Cách cải thiện: đổi chunking, thêm metadata, viết lại tài liệu, thêm query expansion, tăng overlap hoặc dùng embedding backend tốt hơn.
+
+13. Hoàn thiện report/REPORT.md
+
+Các section cần điền:
+- Section 1: warm-up.
+- Section 2: document selection của nhóm.
+- Section 3: chunking strategy cá nhân và so sánh nhóm.
+- Section 4: my approach khi implement src/.
+- Section 5: similarity predictions.
+- Section 6: results với 5 benchmark queries.
+- Section 7: what I learned và failure analysis.
+- Tự đánh giá điểm.
+
+Lưu ý:
+- Phần nhóm có thể giống nhau giữa các thành viên.
+- Phần cá nhân phải khác nhau, vì mỗi người có implementation, strategy, prediction và reflection riêng.
+
+14. Checklist tự kiểm tra trước khi nộp
+
+Code:
+- SentenceChunker đã hoạt động với text rỗng và text nhiều câu.
+- RecursiveChunker xử lý được separators mặc định và separators rỗng.
+- compute_similarity có zero-vector guard.
+- ChunkingStrategyComparator trả đủ ba strategy.
+- EmbeddingStore add/search/count/filter/delete hoạt động.
+- KnowledgeBaseAgent inject context vào prompt.
+
+Data và report:
+- data/ có 5-10 tài liệu nhóm chọn.
+- Mỗi tài liệu có metadata hữu ích.
+- Có đúng 5 benchmark queries và gold answers.
+- Có bảng so sánh strategy.
+- Có kết quả retrieval và agent answer.
+- Có failure case và đề xuất cải thiện.
+
+15. Thứ tự làm khuyến nghị
+
+Thứ tự nên làm:
+- Đọc README.md và exercises.md.
+- Đọc tests/test_solution.py để hiểu output kỳ vọng.
+- Implement chunking trước.
+- Implement similarity.
+- Implement EmbeddingStore.
+- Implement KnowledgeBaseAgent.
+- Chuẩn bị data nhóm.
+- Thiết kế strategy cá nhân.
+- Chạy benchmark.
+- Điền report.
+- Kiểm tra lại theo docs/SCORING.md.
+
+16. Tư duy quan trọng nhất của bài
+
+Bài lab này không chỉ dạy cách gọi embedding hoặc tạo vector store. Ý chính là chất lượng retrieval phụ thuộc rất nhiều vào dữ liệu: tài liệu có rõ không, chunk có đúng ranh giới ý không, metadata có giúp lọc không, benchmark có thực tế không và người làm có phân tích được thất bại không. Một hệ thống RAG tốt không đến từ LLM mạnh hơn một cách đơn giản, mà đến từ pipeline dữ liệu được thiết kế và kiểm chứng cẩn thận.

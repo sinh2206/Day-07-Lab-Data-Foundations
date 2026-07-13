@@ -1,0 +1,162 @@
+TỔNG QUAN DỰ ÁN - DAY 7 LAB DATA FOUNDATIONS
+Embedding & Vector Store
+
+1. Mục đích của dự án
+
+Dự án này là một bài lab về nền tảng dữ liệu cho hệ thống AI có dùng embedding, vector store và RAG (Retrieval-Augmented Generation). Trọng tâm không chỉ là viết code cho chạy được, mà là hiểu vì sao cách chia tài liệu, cách lưu metadata và cách đánh giá retrieval lại ảnh hưởng trực tiếp đến chất lượng câu trả lời của agent.
+
+Sau khi hoàn thành bài lab, người học cần:
+- Hiểu cosine similarity và biết dự đoán mức độ tương đồng giữa các đoạn văn bản.
+- Triển khai nhiều chiến lược chunking để chia tài liệu thành các đoạn nhỏ có ý nghĩa.
+- Xây dựng một vector store đơn giản có thể thêm tài liệu, tìm kiếm, lọc theo metadata và xóa tài liệu.
+- Kết nối knowledge base với agent theo mô hình RAG.
+- Biết đánh giá khi nào retrieval giúp ích, khi nào retrieval thất bại và vì sao.
+
+2. Bức tranh tổng thể của pipeline
+
+Pipeline chính của dự án đi theo luồng:
+
+Tài liệu gốc -> Document -> Chunk -> Embedding -> Vector Store -> Query -> Retrieval -> Prompt -> LLM/Agent Answer
+
+Giải thích từng bước:
+- Tài liệu gốc: các file .txt hoặc .md trong thư mục data/.
+- Document: lớp dữ liệu gồm id, content và metadata.
+- Chunk: đoạn nhỏ được tách từ tài liệu bằng các chiến lược chunking.
+- Embedding: vector số biểu diễn ý nghĩa của văn bản.
+- Vector Store: nơi lưu content, embedding và metadata để tìm kiếm tương đồng.
+- Query: câu hỏi của người dùng được embed thành vector.
+- Retrieval: tìm top-k chunk gần nhất với query.
+- Prompt: ghép câu hỏi với các chunk đã retrieve để làm ngữ cảnh.
+- Agent Answer: gọi hàm LLM để tạo câu trả lời dựa trên ngữ cảnh.
+
+3. Cấu trúc thư mục và vai trò từng thành phần
+
+README.md
+- Mô tả mục tiêu bài lab, cách thiết lập môi trường, các phase làm việc và sản phẩm cần nộp.
+- Nêu rõ bài lab có 2 phase: cá nhân hoàn thành code trong src/ và nhóm so sánh retrieval strategy.
+- Giới thiệu các backend embedding: mock mặc định, local all-MiniLM-L6-v2 và OpenAI text-embedding-3-small.
+
+exercises.md
+- Là worksheet chính của bài lab.
+- Chia nhiệm vụ thành warm-up, core coding, chuẩn bị tài liệu nhóm, thiết kế retrieval strategy, benchmark queries, similarity prediction và failure analysis.
+- Đây là file nên đọc đầu tiên khi bắt tay vào làm vì nó liệt kê đầy đủ TODO và phần cần ghi vào report.
+
+docs/EVALUATION.md
+- Giải thích cách đánh giá chất lượng retrieval.
+- Các tiêu chí quan trọng gồm retrieval precision, chunk coherence, metadata utility, grounding quality và data strategy impact.
+- File này giúp người học không chỉ nhìn vào việc pass test mà còn biết phân tích chất lượng kết quả.
+
+docs/INSTRUCTOR_GUIDE.md
+- Hướng dẫn dành cho giảng viên, nhưng sinh viên vẫn nên đọc để hiểu mục tiêu sâu hơn của bài lab.
+- File này giải thích timeline, checkpoint, sai lầm phổ biến và tiêu chí thành công.
+- Các lỗi hay gặp gồm overlap lớn hơn chunk_size, quên chuẩn hóa vector, filter sai thứ tự, agent không inject context và benchmark query quá dễ.
+
+docs/SCORING.md
+- Rubric chấm điểm chính thức.
+- Tổng điểm là 100, gồm 60 điểm cá nhân và 40 điểm nhóm.
+- Phần cá nhân gồm code, report approach, benchmark cá nhân, warm-up và similarity prediction.
+- Phần nhóm gồm strategy design, chất lượng bộ tài liệu, retrieval quality và demo.
+
+report/REPORT.md
+- Mẫu báo cáo nộp bài.
+- Sinh viên cần điền cả phần cá nhân và phần nhóm.
+- Các section quan trọng gồm warm-up, document selection, chunking strategy, my approach, similarity predictions, results và what I learned.
+
+main.py
+- Entry point để chạy demo thủ công.
+- Đọc các file mẫu trong data/, tạo Document, chọn embedding backend, thêm tài liệu vào EmbeddingStore, chạy search và gọi KnowledgeBaseAgent.
+- main.py không phải nơi chính cần implement, nhưng rất hữu ích để hiểu cách các module trong src/ được nối lại với nhau.
+
+requirements.txt
+- Khai báo dependency bắt buộc là pytest và python-dotenv.
+- Các dependency như sentence-transformers, openai và chromadb là tùy chọn.
+- Lab mặc định dùng mock embedder nên không bắt buộc có API key hoặc tải model thật.
+
+src/
+- Đây là package chính cần hoàn thành trong phase cá nhân.
+- src/models.py: định nghĩa Document dataclass.
+- src/embeddings.py: định nghĩa MockEmbedder, LocalEmbedder, OpenAIEmbedder và fallback mock embedding.
+- src/chunking.py: chứa FixedSizeChunker đã có sẵn và các TODO cho SentenceChunker, RecursiveChunker, compute_similarity, ChunkingStrategyComparator.
+- src/store.py: chứa EmbeddingStore, cần implement add, search, filter, delete và count.
+- src/agent.py: chứa KnowledgeBaseAgent, cần implement luồng RAG đơn giản.
+- src/__init__.py: export public API để tests và main.py import dễ dàng.
+
+tests/
+- Chứa test suite trong tests/test_solution.py.
+- Các test kiểm tra cấu trúc project, chunker, similarity, store, filter, delete và agent.
+- Đây là nguồn tham khảo rất quan trọng để biết output kỳ vọng của từng method.
+
+data/
+- Chứa các tài liệu mẫu dùng cho demo và thử retrieval.
+- python_intro.txt: giới thiệu Python và vai trò của Python trong AI.
+- vector_store_notes.md: giải thích vector store, workflow, metadata và rủi ro.
+- rag_system_design.md: thiết kế hệ thống RAG cho internal knowledge assistant.
+- customer_support_playbook.txt: playbook hỗ trợ khách hàng, nhấn mạnh metadata và escalation.
+- chunking_experiment_report.md: so sánh fixed-size, sentence-based và recursive chunking.
+- vi_retrieval_notes.md: ghi chú tiếng Việt về retrieval cho trợ lý tri thức nội bộ.
+
+4. Hai phase chính của bài lab
+
+Phase 1 - Cá nhân:
+- Hoàn thành TODO trong src/chunking.py, src/store.py và src/agent.py.
+- Làm warm-up về cosine similarity và chunking math.
+- Chạy test để kiểm tra tiến độ.
+- Ghi cách làm vào report/REPORT.md.
+
+Phase 2 - Nhóm:
+- Chọn domain và chuẩn bị 5-10 tài liệu trong data/.
+- Thiết kế metadata schema cho tài liệu.
+- Thống nhất đúng 5 benchmark queries kèm gold answers.
+- Mỗi thành viên thử một strategy riêng hoặc cấu hình riêng.
+- So sánh top-3 retrieval, agent answer, điểm mạnh/yếu và failure case.
+
+5. Các module kỹ thuật chính
+
+Document
+- Là dataclass dùng để đóng gói một tài liệu hoặc một chunk.
+- Gồm id, content và metadata.
+- Metadata có thể chứa source, language, department, category, date hoặc doc_id.
+
+Chunking
+- FixedSizeChunker chia văn bản theo độ dài cố định và overlap.
+- SentenceChunker chia theo ranh giới câu, giúp chunk dễ đọc hơn.
+- RecursiveChunker ưu tiên tách theo đoạn, dòng, câu, từ rồi mới tách ký tự nếu cần.
+- ChunkingStrategyComparator dùng để so sánh số chunk, độ dài trung bình và nội dung chunk giữa các strategy.
+
+Embedding
+- MockEmbedder tạo vector giả lập nhưng deterministic, phù hợp cho test và lớp học.
+- LocalEmbedder dùng sentence-transformers nếu muốn thử embedding local.
+- OpenAIEmbedder dùng OpenAI embeddings nếu có API key.
+- Fallback mặc định giúp bài lab không phụ thuộc vào mạng hoặc dịch vụ trả phí.
+
+EmbeddingStore
+- Là vector store đơn giản.
+- Cần lưu content, embedding và metadata của từng document/chunk.
+- Cần hỗ trợ search theo độ tương đồng, search_with_filter theo metadata, get_collection_size và delete_document.
+- Có thể thử ChromaDB nếu cài thêm, nhưng in-memory store là đủ cho bài lab và test.
+
+KnowledgeBaseAgent
+- Là agent áp dụng pattern RAG.
+- Bước 1: retrieve top-k chunk liên quan từ EmbeddingStore.
+- Bước 2: xây prompt gồm context và câu hỏi.
+- Bước 3: gọi llm_fn để sinh câu trả lời.
+- Mục tiêu là answer phải grounded trên context đã retrieve.
+
+6. Đánh giá và sản phẩm nộp
+
+Sản phẩm nộp gồm:
+- Code đã hoàn thành trong src/.
+- Báo cáo cá nhân trong report/REPORT.md.
+- Phần nhóm về document set, metadata, strategy, benchmark và demo.
+
+Các tiêu chí đánh giá quan trọng:
+- Core implementation pass tests.
+- Giải thích được approach khi implement.
+- Có benchmark 5 queries và gold answers.
+- So sánh được strategy cá nhân với baseline và với thành viên khác.
+- Phân tích được failure case.
+- Hiểu rằng chất lượng dữ liệu, chunking và metadata thường quan trọng hơn chỉ đổi model embedding.
+
+7. Ý nghĩa thực tế của bài lab
+
+Bài lab mô phỏng một hệ thống knowledge assistant thu nhỏ. Trong thực tế, một chatbot nội bộ hoặc support assistant không nên chỉ dựa vào LLM để tự trả lời. Nó cần retrieval để lấy bằng chứng từ tài liệu đã kiểm soát. Vì vậy, người làm dự án phải biết chuẩn bị dữ liệu, chia chunk hợp lý, thiết kế metadata, đánh giá kết quả retrieval và xử lý trường hợp hệ thống không tìm được bằng chứng đủ tốt.
